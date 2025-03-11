@@ -1,12 +1,23 @@
 #!/bin/bash
 
 # Load secrets from Docker secrets using proper handling
+# export POSTGRES_HOST="postgres"
+# export POSTGRES_PORT="5432"
+
+# export $(cat /run/secrets/postgres_config | xargs)
+# export $(cat /run/secrets/airflow_config | xargs)
+# export $(cat /run/secrets/aws_config | xargs)
+
+set -euo pipefail
+
+# Load secrets safely
 export POSTGRES_HOST="postgres"
 export POSTGRES_PORT="5432"
 
-export $(cat /run/secrets/postgres_config | xargs)
-export $(cat /run/secrets/airflow_config | xargs)
-export $(cat /run/secrets/aws_config | xargs)
+# Use process substitution to avoid creating temporary files
+source <(grep -v '^#' /run/secrets/postgres_config)
+source <(grep -v '^#' /run/secrets/airflow_config)
+source <(grep -v '^#' /run/secrets/aws_config)
 
 # Wait for PostgreSQL using service name
 echo "Waiting for PostgreSQL at ${POSTGRES_HOST}:${POSTGRES_PORT}..."

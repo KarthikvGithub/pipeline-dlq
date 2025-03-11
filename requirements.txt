@@ -10,7 +10,7 @@ pyspark
 Requests
 smart_open
 pyarrow
-apache-airflow
+apache-airflow==2.8.1
 apache-airflow-providers-amazon
 apache-airflow-providers-postgres
 python-json-logger

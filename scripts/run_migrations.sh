@@ -1,16 +1,21 @@
 #!/bin/bash
 
 # Load database credentials securely
-source /run/secrets/postgres_config
-export PGHOST=postgres PGPORT=5432 PGPASSWORD="$POSTGRES_PASSWORD"
+set -euo pipefail
+
+# Load secrets safely
+export POSTGRES_HOST="postgres"
+export POSTGRES_PORT="5432"
+export $(cat /run/secrets/postgres_config | xargs)
 
 # Wait for PostgreSQL with credentials
-echo "Waiting for PostgreSQL to be ready..."
-until PGPASSWORD="$POSTGRES_PASSWORD" pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+echo "Waiting for PostgreSQL at ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER"
 do
     echo "PostgreSQL not ready. Retrying in 5 seconds..."
     sleep 5
 done
+echo "PostgreSQL connection established."
 
 # Run migrations with explicit credentials
 echo "Running database migrations..."
