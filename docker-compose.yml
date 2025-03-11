@@ -1,0 +1,399 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - data-pipeline
+    healthcheck:
+      test: ["CMD", "zkOk.sh"]
+      interval: 10s
+      timeout: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    ports:
+      - "9092:9092"
+      - "9998:9998"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
+      - ./config/kafka-jmx-exporter.yml:/etc/kafka/jmx-exporter.yml
+    command: >
+      bash -c "
+      export KAFKA_OPTS='-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9998:/etc/kafka/jmx-exporter.yml';
+      /etc/confluent/docker/run"
+    networks:
+      - data-pipeline
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+  setup:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - kafka
+    volumes:
+      - ./scripts:/scripts
+    entrypoint: /bin/sh -c "sleep 30 && /scripts/create_topics.sh"
+    networks:
+      - data-pipeline
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - data-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+    networks:
+      - data-pipeline
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  spark-master:
+    image: bitnami/spark:3.5
+    secrets:
+      - aws_config
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_METRICS_ON=prometheus
+      - SPARK_PROMETHEUS_PORT=4040
+    ports:
+      - "8081:8080"
+      - "7077:7077"
+    networks:
+      - data-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 1G
+
+  spark-worker-1:
+    image: bitnami/spark:3.5
+    secrets:
+      - aws_config
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=1
+      - SPARK_METRICS_ON=prometheus
+      - SPARK_PROMETHEUS_PORT=4040
+    depends_on:
+      - spark-master
+    networks:
+      - data-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  spark-worker-2:
+    image: bitnami/spark:3.5
+    secrets:
+      - aws_config
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=1
+      - SPARK_METRICS_ON=prometheus
+      - SPARK_PROMETHEUS_PORT=4040
+    depends_on:
+      - spark-master
+    networks:
+      - data-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    secrets:
+      - postgres_config
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - data-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 800M
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - data-pipeline
+
+  db-init:
+    image: postgres:13
+    depends_on:
+      - postgres
+    volumes:
+      - ./database/migrations:/migrations
+      - ./scripts/run_migrations.sh:/docker-entrypoint-initdb.d/run_migrations.sh
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_DB: airflow
+    secrets:
+      - postgres_config
+    command: ["bash", "-c", "chmod +x /docker-entrypoint-initdb.d/run_migrations.sh && /docker-entrypoint-initdb.d/run_migrations.sh"]
+
+  airflow-init:
+    build: 
+      context: .
+      dockerfile: Dockerfile.airflow
+    secrets:
+      - postgres_config
+      - airflow_config
+      - aws_config
+    depends_on:
+      - postgres
+      - redis
+      - db-init
+    user: "50000:0"
+    environment:
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_UID: 50000
+      AIRFLOW_GID: 0
+      PYTHONPATH: ${PYTHONPATH:-/opt/airflow/src}
+    volumes:
+      - ./airflow/logs:/opt/airflow/logs
+      - ./logs:/logs
+      - ./airflow/dags:/opt/airflow/dags
+      - ./scripts:/scripts
+      - ./src:/opt/airflow/src
+    entrypoint: /bin/bash -c "/scripts/init_airflow.sh"
+    networks:
+      - data-pipeline
+
+  airflow-scheduler:
+    build: 
+      context: .
+      dockerfile: Dockerfile.airflow
+    secrets:
+      - postgres_config
+      - airflow_config
+      - aws_config
+    depends_on:
+      - postgres
+      - redis
+      - airflow-init
+    user: "50000:0"
+    environment:
+      AIRFLOW_UID: 50000
+      AIRFLOW_GID: 0
+      PYTHONPATH: ${PYTHONPATH:-/opt/airflow/src}
+    volumes:
+      - ./logs:/logs
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+    command: scheduler
+    networks:
+      - data-pipeline
+
+  airflow-webserver:
+    build: 
+      context: .
+      dockerfile: Dockerfile.airflow
+    ports:
+      - "8080:8080"
+    secrets:
+      - postgres_config
+      - airflow_config
+      - aws_config
+    depends_on:
+      - postgres
+      - redis
+      - airflow-init
+    user: "50000:0"
+    environment:
+      AIRFLOW__WEBSERVER__WORKER_REFRESH_INTERVAL: "300"
+      AIRFLOW_UID: 50000
+      AIRFLOW_GID: 0
+      PYTHONPATH: ${PYTHONPATH:-/opt/airflow/src}
+    volumes:
+      - ./logs:/logs
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+    command: webserver
+    networks:
+      - data-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 800M
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200"
+    networks:
+      - data-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.8'
+          memory: 1G
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.17.0
+    volumes:
+      - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    environment:
+      - LS_JAVA_OPTS=-Xmx256m -Xms256m
+    networks:
+      - data-pipeline
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9600"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.0
+    ports:
+      - "5601:5601"
+    networks:
+      - data-pipeline
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5601"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  dlq-consumer:
+    build: .
+    ports:
+      - "8000:8000"
+    secrets:
+      - aws_config
+    environment:
+      KAFKA_BROKER: kafka:29092
+    networks:
+      - data-pipeline
+    depends_on:
+      - kafka
+      - postgres
+      - setup
+    volumes:
+      - ./logs:/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  data-pipeline:
+    driver: bridge
+
+secrets:
+  postgres_config:
+    file: ./secrets/postgres.env
+  airflow_config:
+    file: ./secrets/airflow.env
+  aws_config:
+    file: ./secrets/aws.env
+
+volumes:
+  postgres-data:
