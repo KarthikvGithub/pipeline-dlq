@@ -264,7 +264,16 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./src:/opt/airflow/src
-    command: scheduler
+    command: 
+      - bash
+      - -c
+      - |
+        # Wait for Airflow DB initialization
+        until airflow db check; do
+          echo "Airflow database not ready. Retrying in 5 seconds...";
+          sleep 5;
+        done
+        airflow scheduler
     networks:
       - data-pipeline
 
@@ -292,7 +301,16 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./src:/opt/airflow/src
-    command: webserver
+    command: 
+      - bash
+      - -c
+      - |
+        # Wait for Airflow DB initialization
+        until airflow db check; do
+          echo "Airflow database not ready. Retrying in 5 seconds...";
+          sleep 5;
+        done
+        airflow scheduler
     networks:
       - data-pipeline
     deploy:
