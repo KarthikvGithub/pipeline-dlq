@@ -21,7 +21,7 @@ echo "PostgreSQL connection established."
 echo "Running database migrations..."
 for migration in $(find /migrations -name "*.sql" | sort -V); do
     echo "Applying migration: ${migration}"
-    psql -v ON_ERROR_STOP=1 \
+    PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 \
          -U "$POSTGRES_USER" \
          -d "$POSTGRES_DB" \
          -h postgres \

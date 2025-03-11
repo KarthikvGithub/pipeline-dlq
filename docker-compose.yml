@@ -202,13 +202,16 @@ services:
   db-init:
     image: postgres:13
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./database/migrations:/migrations
       - ./scripts/run_migrations.sh:/docker-entrypoint-initdb.d/run_migrations.sh
     secrets:
       - postgres_config
     command: ["bash", "-c", "chmod +x /docker-entrypoint-initdb.d/run_migrations.sh && /docker-entrypoint-initdb.d/run_migrations.sh"]
+    networks:
+      - data-pipeline
 
   airflow-init:
     build: 
@@ -249,9 +252,8 @@ services:
       - airflow_config
       - aws_config
     depends_on:
-      - postgres
-      - redis
-      - airflow-init
+      airflow-init:
+        condition: service_completed_successfully
     user: "50000:0"
     environment:
       AIRFLOW_UID: 50000
@@ -277,9 +279,8 @@ services:
       - airflow_config
       - aws_config
     depends_on:
-      - postgres
-      - redis
-      - airflow-init
+      airflow-init:
+        condition: service_completed_successfully
     user: "50000:0"
     environment:
       AIRFLOW__WEBSERVER__WORKER_REFRESH_INTERVAL: "300"

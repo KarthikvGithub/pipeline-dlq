@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS dlq_messages (
     message_id UUID NOT NULL UNIQUE,
     topic VARCHAR(255) NOT NULL,
     partition INT NOT NULL,
-    offset BIGINT NOT NULL,
+    msg_offset BIGINT NOT NULL,
     timestamp TIMESTAMP NOT NULL,
     payload JSONB NOT NULL,
     error TEXT,
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS processed_messages (
     message_id UUID NOT NULL UNIQUE,
     topic VARCHAR(255) NOT NULL,
     partition INT NOT NULL,
-    offset BIGINT NOT NULL,
+    msg_offset BIGINT NOT NULL,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS failed_messages (
     message_id UUID NOT NULL UNIQUE,
     topic VARCHAR(255) NOT NULL,
     partition INT NOT NULL,
-    offset BIGINT NOT NULL,
+    msg_offset BIGINT NOT NULL,
     error TEXT NOT NULL,
     retry_count INT NOT NULL,
     failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

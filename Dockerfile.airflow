@@ -7,8 +7,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/airflow/logs /opt/airflow/dags /run/secrets && \
-    chmod -R 440 /opt/airflow/logs /opt/airflow/dags /run/secrets && \
-    chown -R airflow:root /opt/airflow/logs /opt/airflow/dags /run/secrets
+    chown -R airflow:root /opt/airflow/logs /opt/airflow/dags /run/secrets && \
+    chmod -R 775 /opt/airflow/logs /opt/airflow/dags /run/secrets
 
 USER airflow
 COPY requirements.txt .
