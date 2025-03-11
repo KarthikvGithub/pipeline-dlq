@@ -9,6 +9,9 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:29092")
 SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "nyc_taxi_stream")
 PROCESSED_TOPIC = os.getenv("PROCESSED_TOPIC", "nyc_taxi_processed")
 DLQ_TOPIC = os.getenv("DLQ_TOPIC", "nyc_taxi_dlq")
+POSTGRES_JDBC = os.getenv("POSTGRES_JDBC", "jdbc:postgresql://postgres:5432/airflow")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "airflow")
+POSTGRES_PWD = os.getenv("POSTGRES_PWD", "airflow")
 CHECKPOINT_LOCATION = "/tmp/checkpoints/main"
 
 def create_spark_session():
@@ -23,7 +26,7 @@ def create_spark_session():
         .config("spark.sql.streaming.checkpointLocation", CHECKPOINT_LOCATION) \
         .config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true") \
         .config("spark.sql.streaming.minBatchesToRetain", 2) \
-        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
+        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.6.0") \
         .config("spark.sql.streaming.schemaInference", "true") \
         .config("spark.executor.extraJavaOptions", "-Dcom.sun.management.jmxremote") \
         .getOrCreate()
@@ -49,12 +52,14 @@ def process_stream():
 
         # Write valid records to processed topic
         if not valid_df.isEmpty():
-            valid_df.select(
-                F.to_json(F.struct([F.col(c) for c in spark_schema.fieldNames()])).alias("value")
-            ).write \
-                .format("kafka") \
-                .option("kafka.bootstrap.servers", KAFKA_BROKER) \
-                .option("topic", PROCESSED_TOPIC) \
+            valid_df.write \
+                .format("jdbc") \
+                .option("url", POSTGRES_JDBC) \
+                .option("dbtable", "processed_messages") \
+                .option("user", POSTGRES_USER) \
+                .option("password", POSTGRES_PWD) \
+                .option("driver", "org.postgresql.Driver") \
+                .mode("append") \
                 .save()
 
         # Write invalid records to DLQ

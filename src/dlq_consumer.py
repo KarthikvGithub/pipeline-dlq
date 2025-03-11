@@ -10,6 +10,9 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:29092")
 DLQ_TOPIC = os.getenv("DLQ_TOPIC", "nyc_taxi_dlq")
 SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "nyc_taxi_stream")
 FAILED_TOPIC = os.getenv("FAILED_TOPIC", "nyc_taxi_failed")
+POSTGRES_JDBC = os.getenv("POSTGRES_JDBC", "jdbc:postgresql://postgres:5432/airflow")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "airflow")
+POSTGRES_PWD = os.getenv("POSTGRES_PWD", "airflow")
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 CHECKPOINT_LOCATION = f"/tmp/checkpoints/dlq"
 
@@ -26,7 +29,7 @@ def create_spark_session():
         .config("spark.cleaner.referenceTracking.cleanCheckpoints", "true") \
         .config("spark.sql.streaming.stateStore.providerClass", 
               "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider") \
-        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
+        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0, org.postgresql:postgresql:42.6.0") \
         .config("spark.sql.streaming.schemaInference", "true") \
         .config("spark.executor.extraJavaOptions", "-Dcom.sun.management.jmxremote") \
         .getOrCreate()
@@ -66,11 +69,15 @@ def process_dlq_stream():
 
         # Write failures to final DLQ
         if not failed_df.isEmpty():
-            failed_df.select(F.to_json(F.struct([F.col(c) for c in spark_schema.fieldNames()])).alias("value")) \
+            failed_df.withColumn("error", F.lit("Max retries exceeded")) \
                 .write \
-                .format("kafka") \
-                .option("kafka.bootstrap.servers", KAFKA_BROKER) \
-                .option("topic", FAILED_TOPIC) \
+                .format("jdbc") \
+                .option("url", POSTGRES_JDBC) \
+                .option("dbtable", "failed_messages") \
+                .option("user", POSTGRES_USER) \
+                .option("password", POSTGRES_PWD) \
+                .option("driver", "org.postgresql.Driver") \
+                .mode("append") \
                 .save()
 
     # Start DLQ processing

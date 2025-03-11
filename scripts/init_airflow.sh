@@ -4,30 +4,9 @@
 export POSTGRES_HOST="postgres"
 export POSTGRES_PORT="5432"
 
-# echo "Setting up permissions..."
-# chmod 600 /run/secrets/*
-# chown airflow:airflow /run/secrets/*
-
-# Load secrets safely without word splitting
-# if [ -f /run/secrets/postgres_config ]; then
-#     source /run/secrets/postgres_config
-#     export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
-# fi
-
-# if [ -f /run/secrets/aws_config ]; then
-#     source /run/secrets/aws_config
-#     export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION
-# fi
-
-# if [ -f /run/secrets/airflow_config ]; then
-#     source /run/secrets/airflow_config
-#     export AIRFLOW__CORE__FERNET_KEY AIRFLOW__CORE__SQL_ALCHEMY_CONN
-# fi
-
-export $(grep -v '^#' /run/secrets/postgres_config | xargs)
-export $(grep -v '^#' /run/secrets/aws_config | xargs)
-export $(grep -v '^#' /run/secrets/aws_config | xargs)
-
+export $(cat /run/secrets/postgres_config | xargs)
+export $(cat /run/secrets/airflow_config | xargs)
+export $(cat /run/secrets/aws_config | xargs)
 
 # Wait for PostgreSQL using service name
 echo "Waiting for PostgreSQL at ${POSTGRES_HOST}:${POSTGRES_PORT}..."
@@ -46,18 +25,24 @@ airflow db migrate || {
 }
 
 # Create admin user with non-interactive password
-echo "Creating admin user..."
-airflow users create \
-    --username "$POSTGRES_USER" \
-    --password "$POSTGRES_PASSWORD" \
-    --firstname Admin \
-    --lastname User \
-    --role Admin \
-    --email admin@example.com \
-    --use-random-password=false || {
+# echo "Creating admin user..."
+# airflow users create \
+#     --username "$POSTGRES_USER" \
+#     --password "$POSTGRES_PASSWORD" \
+#     --firstname Admin \
+#     --lastname User \
+#     --role Admin \
+#     --email admin@example.com \ || {
+#     echo "Failed to create Airflow user"
+#     exit 1
+# }
+
+airflow users create -e admin@example.com -f Admin -l User -p "$POSTGRES_PASSWORD" -r Admin -u "$POSTGRES_USER" || {
     echo "Failed to create Airflow user"
     exit 1
 }
+
+
 # Set up connections using secrets
 echo "Configuring connections..."
 airflow connections add 'aws_default' \

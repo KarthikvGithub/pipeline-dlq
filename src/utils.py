@@ -12,10 +12,10 @@ from botocore.exceptions import ClientError
 from typing import Optional
 from datetime import datetime
 
-# Load schema from config file
-SCHEMA_PATH = Path(__file__).parent.parent / "config" / "schema.json"
-with open(SCHEMA_PATH, "r") as f:
-    SCHEMA = json.load(f)
+# # Load schema from config file
+# SCHEMA_PATH = Path(__file__).parent.parent / "config" / "schema.json"
+# with open(SCHEMA_PATH, "r") as f:
+#     SCHEMA = json.load(f)
 
 # Load logging configuration from config file
 LOGGING_CONFIG_PATH = Path(__file__).parent.parent / "config" / "logging.json"
